@@ -1,6 +1,10 @@
 .env
 seen.db
 seen.db-*
+model_history.json
+known_models.json
+opencode_history.json
+opencode_known.json
 __pycache__/
 *.pyc
 .ledger.md

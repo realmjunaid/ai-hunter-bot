@@ -20,6 +20,8 @@ class Config:
     rsshub_base: str = DEFAULT_BASE
     fallbacks: list = field(default_factory=list)
     dry_run: bool = False
+    alert_channel_id: int = 0
+    poll_interval: int = 300
 
 
 def load() -> Config:
@@ -41,4 +43,6 @@ def load() -> Config:
         rsshub_base=base.rstrip("/"),
         fallbacks=fallbacks,
         dry_run=os.getenv("DRY_RUN", "0") == "1",
+        alert_channel_id=int(os.getenv("ALERT_CHANNEL_ID", "0") or 0),
+        poll_interval=max(60, int(os.getenv("POLL_INTERVAL_SECONDS", "300") or 300)),
     )

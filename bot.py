@@ -10,6 +10,7 @@ import discord
 from discord.ext import tasks
 
 import config as cfgmod
+import providers as pv
 from fetcher import Tweet, fetch_user_tweets
 from filter import is_match
 from store import connect, is_seen, mark_seen, prune
@@ -86,24 +87,65 @@ def main():
 
     intents = discord.Intents.default()
     bot = discord.Client(intents=intents)
+    tree = discord.app_commands.CommandTree(bot)
+    pv.register_commands(tree)
+    or_lock = asyncio.Lock()
+    oc_lock = asyncio.Lock()
+    synced = False
 
     @tasks.loop(hours=1)
     async def hourly():
         n = await check_once(bot, cfg, keywords, db, accounts)
-        log.info("round done, posted %d", n)
+        log.info("x round done, posted %d", n)
+
+    @tasks.loop(seconds=cfg.poll_interval)
+    async def poll_or():
+        await pv.poll_provider(bot, cfg.alert_channel_id, "OpenRouter",
+                               pv.fetch_or_free, pv.or_history, pv.or_cache, or_lock)
+
+    @tasks.loop(seconds=cfg.poll_interval)
+    async def poll_oc():
+        await pv.poll_provider(bot, cfg.alert_channel_id, "OpenCode Zen",
+                               pv.fetch_oc_free, pv.oc_history, pv.oc_cache, oc_lock)
 
     @bot.event
     async def on_ready():
+        nonlocal synced
         log.info("logged in as %s", bot.user)
-        if not hourly.is_running():
-            hourly.start()
+        if not synced:
+            try:
+                n = await tree.sync()
+                log.info("synced %d commands", len(n))
+            except Exception as e:
+                log.warning("tree.sync failed: %s", e)
+            synced = True
+        # Seed provider state silently so first poll doesn't spam.
+        if cfg.alert_channel_id:
+            if not pv.or_history.ids:
+                try:
+                    pv.or_history.touch(set((await pv.fetch_or_free(force=True)).keys()))
+                    pv.or_history.save()
+                except Exception as e:
+                    log.warning("initial OpenRouter fetch failed: %s", e)
+            if not pv.oc_history.ids:
+                try:
+                    pv.oc_history.touch(set((await pv.fetch_oc_free(force=True)).keys()))
+                    pv.oc_history.save()
+                except Exception as e:
+                    log.warning("initial OpenCode fetch failed: %s", e)
+        for loop in (hourly, poll_or, poll_oc):
+            if not loop.is_running():
+                loop.start()
 
     if cfg.dry_run:
         print("DRY_RUN=1 — no Discord login. Feed check only.")
         n = asyncio.run(check_once(None, cfg, keywords, db, accounts))
         print(f"dry round done, would post {n}")
         return
-    bot.run(cfg.token)
+    try:
+        bot.run(cfg.token)
+    finally:
+        asyncio.run(pv.close_session())
 
 
 if __name__ == "__main__":
