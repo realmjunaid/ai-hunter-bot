@@ -24,6 +24,17 @@ class Config:
     poll_interval: int = 300
 
 
+def _env_int(name: str, default: int) -> int:
+    """Parse an optional integer env var, failing with ConfigError (not ValueError)."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be an integer, got {raw!r}") from None
+
+
 def load() -> Config:
     token = os.getenv("DISCORD_TOKEN", "").strip()
     if not token and os.getenv("DRY_RUN", "0") != "1":
@@ -43,6 +54,6 @@ def load() -> Config:
         rsshub_base=base.rstrip("/"),
         fallbacks=fallbacks,
         dry_run=os.getenv("DRY_RUN", "0") == "1",
-        alert_channel_id=int(os.getenv("ALERT_CHANNEL_ID", "0") or 0),
-        poll_interval=max(60, int(os.getenv("POLL_INTERVAL_SECONDS", "300") or 300)),
+        alert_channel_id=_env_int("ALERT_CHANNEL_ID", 0),
+        poll_interval=max(60, _env_int("POLL_INTERVAL_SECONDS", 300)),
     )

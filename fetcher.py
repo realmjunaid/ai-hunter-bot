@@ -1,6 +1,8 @@
 """Fetch recent tweets per handle via RSSHub (RSS). No login, no paid API."""
 import asyncio
+import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -10,6 +12,8 @@ import feedparser
 log = logging.getLogger("aihunter")
 
 ROUTE = "/twitter/user/{handle}"
+# X status ids live anywhere in the URL path: /status/123, /status/123/photo/1, ...
+STATUS_ID_RE = re.compile(r"/status(?:es)?/(\d+)", re.IGNORECASE)
 
 
 @dataclass
@@ -21,11 +25,31 @@ class Tweet:
     created_utc: datetime
 
 
+def _entry_id(entry, link: str, handle: str) -> str:
+    """Stable, non-empty tweet id for dedupe.
+
+    Taking the last URL segment blindly turns ``/status/123/photo/1`` into ``1``,
+    so unrelated photo posts collide in seen.db and get silently dropped.
+    """
+    guid = str(getattr(entry, "id", "") or "").strip()
+    for candidate in (link, guid):
+        m = STATUS_ID_RE.search(candidate or "")
+        if m:
+            return m.group(1)
+    # feedparser falls back to the link when a feed has no guid, so only keep
+    # a guid that is genuinely distinct from the link.
+    if guid and guid != (link or "").strip():
+        return guid
+    # Last resort: never emit "" (every empty id would dedupe to one row).
+    text = str(getattr(entry, "title", "") or "")
+    return "x-" + hashlib.sha1(f"{handle}\n{link}\n{text}".encode("utf-8")).hexdigest()[:24]
+
+
 def _parse(feed, handle: str) -> list:
     out = []
     for e in feed.entries:
-        link = getattr(e, "link", "")
-        tid = link.rstrip("/").split("/")[-1].split("?")[0] or getattr(e, "id", "")
+        link = getattr(e, "link", "") or ""
+        tid = _entry_id(e, link, handle)
         text = getattr(e, "title", "") or ""
         if hasattr(e, "published_parsed") and e.published_parsed:
             created = datetime(*e.published_parsed[:6], tzinfo=timezone.utc)

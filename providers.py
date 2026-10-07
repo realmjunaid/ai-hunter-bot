@@ -338,7 +338,14 @@ def chunk_lines_into_embeds(title: str, total: int, lines: List[str], color: int
         embeds.append(e)
     if len(embeds) == 1:
         embeds[0].title = f"{title} ({total})"
-    return embeds[:10]
+    # Discord allows max 10 embeds per message: never drop pages silently.
+    if len(embeds) > 10:
+        dropped = embeds[10:]
+        embeds = embeds[:10]
+        more = sum((p.description or "").count("\n\n") + 1 for p in dropped)
+        plural = "s" if more != 1 else ""
+        embeds[-1].description += f"\n\n*...and {more} more model{plural} not shown (message limit)*"
+    return embeds
 
 
 def make_list_embeds(free: Dict[str, dict], provider_title: str) -> List[discord.Embed]:

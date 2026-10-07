@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from pathlib import Path
 
 import aiohttp
 import discord
@@ -16,7 +16,9 @@ from filter import is_match
 from store import connect, is_seen, mark_seen, prune
 
 log = logging.getLogger("aihunter")
-BASE_DIR = __file__.rsplit("\\", 1)[0] if "\\" in __file__ else "."
+# Anchor data files to this file's directory, not the caller's cwd ("." only
+# works when the process happens to start in the app folder).
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def esc(text: str) -> str:
@@ -79,11 +81,11 @@ async def check_once(bot, cfg, keywords, db, accounts) -> int:
 def main():
     logging.basicConfig(level=logging.INFO)
     cfg = cfgmod.load()
-    with open(f"{BASE_DIR}/accounts.json", encoding="utf-8") as f:
+    with open(BASE_DIR / "accounts.json", encoding="utf-8") as f:
         accounts = json.load(f)
-    with open(f"{BASE_DIR}/keywords.json", encoding="utf-8") as f:
+    with open(BASE_DIR / "keywords.json", encoding="utf-8") as f:
         keywords = json.load(f)
-    db = connect(f"{BASE_DIR}/seen.db")
+    db = connect(str(BASE_DIR / "seen.db"))
 
     intents = discord.Intents.default()
     bot = discord.Client(intents=intents)
@@ -122,9 +124,11 @@ def main():
             try:
                 n = await tree.sync()
                 log.info("synced %d commands", len(n))
+                # Only mark synced on success, otherwise a single transient
+                # failure leaves the bot without slash commands for its lifetime.
+                synced = True
             except Exception as e:
                 log.warning("tree.sync failed: %s", e)
-            synced = True
         # Seed provider state silently so first poll doesn't spam.
         if cfg.alert_channel_id:
             if not pv.or_history.ids:
