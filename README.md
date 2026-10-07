@@ -6,7 +6,7 @@ Discord bot with two watches:
    forwarded to `CHANNEL_ID` as rich embeds.
 2. **Provider watch** (every `POLL_INTERVAL_SECONDS`): OpenRouter +
    OpenCode Zen + Infron free-model add/remove alerts → `ALERT_CHANNEL_ID`.
-   Slash commands: `/orfm` `/ocfm` `/iffm` `/ping`.
+   Slash commands: `/orfm` `/ocfm` `/infm` `/ping`.
 
 ## Setup (any host)
 

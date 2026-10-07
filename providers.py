@@ -451,8 +451,8 @@ def register_commands(tree) -> None:
             return
         await interaction.followup.send(embeds=make_list_embeds(free, "OpenCode Zen Free Models"))
 
-    @tree.command(name="iffm", description="Show all current Infron free models")
-    async def iffm(interaction: discord.Interaction) -> None:
+    @tree.command(name="infm", description="Show all current Infron free models")
+    async def infm(interaction: discord.Interaction) -> None:
         await interaction.response.defer(thinking=True)
         try:
             free = await fetch_if_free()
