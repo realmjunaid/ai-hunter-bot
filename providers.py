@@ -28,10 +28,12 @@ except ZoneInfoNotFoundError:
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 OPENCODE_MODELS_URL = "https://opencode.ai/zen/v1/models"
+INFRON_MODELS_URL = "https://infron.ai/api/models"
 
 PROVIDER_LINKS = {
     "OpenRouter": "https://openrouter.ai/models?variant=free",
     "OpenCode Zen": "https://opencode.ai/docs/zen/#models",
+    "Infron": "https://infron.ai/models?free=true",
 }
 
 C_OREO = 0x57F287
@@ -212,6 +214,17 @@ def is_opencode_free_model(m: dict) -> bool:
     return False
 
 
+def is_infron_free_model(m: dict) -> bool:
+    """Infron free detection: :free-suffixed model_id wins, else (free) name."""
+    mid = str(m.get("model_id", "")).strip().lower()
+    name = str(m.get("display_name", "")).strip().lower()
+    if mid.endswith(":free"):
+        return True
+    if "(free)" in name or "[free]" in name:
+        return True
+    return False
+
+
 @dataclass
 class ProviderCache:
     free: Dict[str, dict] = field(default_factory=dict)
@@ -224,8 +237,10 @@ class ProviderCache:
 
 or_cache = ProviderCache()
 oc_cache = ProviderCache()
+if_cache = ProviderCache()
 or_history = HistoryStore(BASE_DIR / "model_history.json", BASE_DIR / "known_models.json")
 oc_history = HistoryStore(BASE_DIR / "opencode_history.json", BASE_DIR / "opencode_known.json")
+if_history = HistoryStore(BASE_DIR / "infron_history.json", BASE_DIR / "infron_known.json")
 
 
 async def fetch_or_free(force: bool = False) -> Dict[str, dict]:
@@ -247,6 +262,43 @@ async def fetch_oc_free(force: bool = False) -> Dict[str, dict]:
     oc_cache.free = free
     oc_cache.fetched_at = time.monotonic()
     oc_cache.registry.update(free)
+    return free
+
+
+def infron_headers() -> Dict[str, str]:
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AiHunter/1.0",
+        "Accept": "application/json",
+    }
+
+
+async def fetch_if_free(force: bool = False) -> Dict[str, dict]:
+    """Paginated Infron /api/models, mapped to {id, name} like the others."""
+    if not force and if_cache.valid():
+        return if_cache.free
+    all_models: List[dict] = []
+    page = 1
+    while True:
+        session = get_session()
+        async with session.get(f"{INFRON_MODELS_URL}?page={page}&pageSize=100",
+                               headers=infron_headers()) as resp:
+            if resp.status != 200:
+                body = (await resp.text())[:300]
+                raise RuntimeError(f"API {resp.status}: {body}")
+            data = (await resp.json()).get("data", {})
+        batch = data.get("models", [])
+        total = data.get("total", 0)
+        all_models.extend(batch)
+        if len(all_models) >= total or not batch:
+            break
+        page += 1
+    free = {}
+    for m in all_models:
+        if isinstance(m, dict) and m.get("model_id") and is_infron_free_model(m):
+            free[m["model_id"]] = {"id": m["model_id"], "name": m.get("display_name", m["model_id"])}
+    if_cache.free = free
+    if_cache.fetched_at = time.monotonic()
+    if_cache.registry.update(free)
     return free
 
 
@@ -290,7 +342,12 @@ def chunk_lines_into_embeds(title: str, total: int, lines: List[str], color: int
 
 
 def make_list_embeds(free: Dict[str, dict], provider_title: str) -> List[discord.Embed]:
-    provider = "OpenRouter" if "OpenRouter" in provider_title else "OpenCode Zen"
+    if "OpenRouter" in provider_title:
+        provider = "OpenRouter"
+    elif "Infron" in provider_title:
+        provider = "Infron"
+    else:
+        provider = "OpenCode Zen"
     url = PROVIDER_LINKS.get(provider)
     ordered = list(free.values())
     lines = [f"{i:02d}. {clean_name(m)}" for i, m in enumerate(ordered, 1)]
@@ -393,6 +450,18 @@ def register_commands(tree) -> None:
             await interaction.followup.send(embed=e, ephemeral=True)
             return
         await interaction.followup.send(embeds=make_list_embeds(free, "OpenCode Zen Free Models"))
+
+    @tree.command(name="iffm", description="Show all current Infron free models")
+    async def iffm(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True)
+        try:
+            free = await fetch_if_free()
+        except Exception as err:
+            e = base_embed("Fetch Failed", C_DANGER)
+            e.description = f"Could not fetch [Infron]({PROVIDER_LINKS['Infron']}) models:\n```{err}```"
+            await interaction.followup.send(embed=e, ephemeral=True)
+            return
+        await interaction.followup.send(embeds=make_list_embeds(free, "Infron Free Models"))
 
     @tree.command(name="ping", description="Check bot latency")
     async def ping(interaction: discord.Interaction) -> None:

@@ -91,6 +91,7 @@ def main():
     pv.register_commands(tree)
     or_lock = asyncio.Lock()
     oc_lock = asyncio.Lock()
+    if_lock = asyncio.Lock()
     synced = False
 
     @tasks.loop(hours=1)
@@ -107,6 +108,11 @@ def main():
     async def poll_oc():
         await pv.poll_provider(bot, cfg.alert_channel_id, "OpenCode Zen",
                                pv.fetch_oc_free, pv.oc_history, pv.oc_cache, oc_lock)
+
+    @tasks.loop(seconds=cfg.poll_interval)
+    async def poll_if():
+        await pv.poll_provider(bot, cfg.alert_channel_id, "Infron",
+                               pv.fetch_if_free, pv.if_history, pv.if_cache, if_lock)
 
     @bot.event
     async def on_ready():
@@ -133,7 +139,13 @@ def main():
                     pv.oc_history.save()
                 except Exception as e:
                     log.warning("initial OpenCode fetch failed: %s", e)
-        for loop in (hourly, poll_or, poll_oc):
+            if not pv.if_history.ids:
+                try:
+                    pv.if_history.touch(set((await pv.fetch_if_free(force=True)).keys()))
+                    pv.if_history.save()
+                except Exception as e:
+                    log.warning("initial Infron fetch failed: %s", e)
+        for loop in (hourly, poll_or, poll_oc, poll_if):
             if not loop.is_running():
                 loop.start()
 
