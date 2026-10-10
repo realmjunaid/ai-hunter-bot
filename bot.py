@@ -12,9 +12,7 @@ from discord.ext import tasks
 
 import config as cfgmod
 import providers as pv
-from fetcher import Tweet, fetch_user_tweets
-from filter import is_match
-from store import connect, is_seen, mark_seen, prune
+from xwatch import Tweet, connect, fetch_user_tweets, is_match, is_seen, mark_seen, prune
 
 log = logging.getLogger("aihunter")
 # Anchor data files to this file's directory, not the caller's cwd ("." only

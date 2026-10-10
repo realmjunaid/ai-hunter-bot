@@ -81,13 +81,10 @@ Copy `.env.example` to `.env` and set:
 ## 🧪 Tests
 
 ```bash
-python test_filter.py       # keyword filter + seen-store
-python test_providers.py    # provider detection + embeds
-python test_botfix.py       # backoff, empty-feed, dry-run safety
-python test_regressions.py  # tweet ids, paths, config errors, perf guards
+python test_all.py
 ```
 
-All four suites must print `... PASS` with exit code `0`.
+One file, four sections (filter/store, providers, fix-pass, regressions). It must print `ALL TESTS PASS` with exit code `0`.
 
 ---
 
@@ -96,10 +93,9 @@ All four suites must print `... PASS` with exit code `0`.
 ```
 bot.py              # Discord wiring: loops, slash commands, entrypoint
 providers.py        # OpenRouter / OpenCode Zen / Infron fetch, diff, alerts
-fetcher.py          # X post fetching via RSS (no login, no paid API)
-filter.py           # keyword matching (require_all + any_of)
-store.py            # seen-tweet SQLite store (WAL, auto-pruned)
+xwatch.py           # X watch: RSS fetching, keyword filter, seen-store (WAL, auto-pruned)
 config.py           # env/.env loading with friendly ConfigError messages
+test_all.py         # all tests (filter, providers, fix-pass, regressions)
 accounts.json       # watched X handles
 keywords.json       # match lists
 requirements.txt    # discord.py, aiohttp, python-dotenv, feedparser

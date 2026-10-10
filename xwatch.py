@@ -1,8 +1,11 @@
-"""Fetch recent tweets per handle via RSSHub (RSS). No login, no paid API."""
+"""X watch: fetch recent tweets per handle (RSS, no login), keyword filter,
+and seen-tweet store (sqlite, WAL mode)."""
 import asyncio
 import hashlib
 import logging
 import re
+import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -14,6 +17,8 @@ log = logging.getLogger("aihunter")
 ROUTE = "/twitter/user/{handle}"
 # X status ids live anywhere in the URL path: /status/123, /status/123/photo/1, ...
 STATUS_ID_RE = re.compile(r"/status(?:es)?/(\d+)", re.IGNORECASE)
+
+RSS_UA = {"User-Agent": "AiHunter/1.0 (Discord Bot; RSS monitor)"}
 
 
 @dataclass
@@ -59,9 +64,6 @@ def _parse(feed, handle: str) -> list:
     return out
 
 
-RSS_UA = {"User-Agent": "AiHunter/1.0 (Discord Bot; RSS monitor)"}
-
-
 async def _try_fetch(session, url: str, handle: str, timeout: int):
     try:
         async with session.get(url, headers=RSS_UA,
@@ -90,3 +92,42 @@ async def fetch_user_tweets(handle: str, session, base: str, fallbacks=None, tim
         if i < len(bases) - 1:
             await asyncio.sleep(2 ** i)
     return []
+
+
+def is_match(text: str, keywords: dict) -> tuple:
+    """Keyword filter for free-AI-model posts."""
+    low = text.lower().strip()
+    if low.startswith("rt @") or low.startswith("rt@") or low.startswith("rt:") or low.startswith("@"):
+        return False, []
+    hits = [w for w in keywords.get("require_all", []) if w.lower() in low]
+    if len(hits) < len(keywords.get("require_all", [])):
+        return False, []
+    any_hits = [w for w in keywords.get("any_of", []) if w.lower() in low]
+    if keywords.get("any_of") and not any_hits:
+        return False, []
+    return True, hits + any_hits
+
+
+SCHEMA = "CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, ts INTEGER)"
+
+
+def connect(path: str):
+    db = sqlite3.connect(path, timeout=10)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute(SCHEMA)
+    return db
+
+
+def is_seen(db, tweet_id: str) -> bool:
+    row = db.execute("SELECT 1 FROM seen WHERE id=?", (str(tweet_id),)).fetchone()
+    return row is not None
+
+
+def mark_seen(db, tweet_id: str):
+    db.execute("INSERT OR IGNORE INTO seen VALUES (?, ?)", (str(tweet_id), int(time.time())))
+    db.commit()
+
+
+def prune(db, days: int = 30):
+    db.execute("DELETE FROM seen WHERE ts < ?", (int(time.time()) - days * 86400,))
+    db.commit()
