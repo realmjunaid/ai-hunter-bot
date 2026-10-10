@@ -27,7 +27,11 @@ def esc(text: str) -> str:
 
 def build_embed(tw: Tweet, keywords: list) -> discord.Embed:
     profile = f"https://x.com/{tw.handle}"
-    body = esc(tw.text[:3500])
+    # Escape first, then truncate: escaping after slicing can push the
+    # description past Discord's 4096-char limit on escape-heavy text.
+    body = esc(tw.text)
+    if len(body) > 3900:
+        body = body[:3900].rstrip("\\") + "…"
     em = discord.Embed(
         title=f"{tw.handle} (@{tw.handle})",
         url=profile,
@@ -40,15 +44,28 @@ def build_embed(tw: Tweet, keywords: list) -> discord.Embed:
     return em
 
 
+async def _fetch_handle(session, cfg, handle):
+    try:
+        tweets = await fetch_user_tweets(handle, session, cfg.rsshub_base, cfg.fallbacks)
+        return handle, tweets
+    except Exception as e:
+        log.warning("fetch %s failed: %s", handle, e)
+        return handle, []
+
+
 async def check_once(bot, cfg, keywords, db, accounts) -> int:
     sent = 0
     async with aiohttp.ClientSession() as session:
-        for handle in accounts:
-            try:
-                tweets = await fetch_user_tweets(handle, session, cfg.rsshub_base, cfg.fallbacks)
-            except Exception as e:
-                log.warning("fetch %s failed: %s", handle, e)
-                continue
+        sem = asyncio.Semaphore(5)
+
+        async def _bounded(handle):
+            async with sem:
+                return await _fetch_handle(session, cfg, handle)
+
+        # I/O-bound fetches run concurrently; posting stays sequential
+        # below to keep channel rate limits and send order stable.
+        results = await asyncio.gather(*(_bounded(h) for h in accounts))
+        for handle, tweets in results:
             if not tweets:
                 log.info("no items for %s this round", handle)
                 continue
@@ -95,6 +112,7 @@ def main():
     oc_lock = asyncio.Lock()
     if_lock = asyncio.Lock()
     synced = False
+    seeded = False
 
     @tasks.loop(hours=1)
     async def hourly():
@@ -118,7 +136,7 @@ def main():
 
     @bot.event
     async def on_ready():
-        nonlocal synced
+        nonlocal synced, seeded
         log.info("logged in as %s", bot.user)
         if not synced:
             try:
@@ -130,7 +148,10 @@ def main():
             except Exception as e:
                 log.warning("tree.sync failed: %s", e)
         # Seed provider state silently so first poll doesn't spam.
-        if cfg.alert_channel_id:
+        # Runs once per process (on_ready fires on every reconnect);
+        # poll_provider self-seeds if a seed fetch failed transiently.
+        if cfg.alert_channel_id and not seeded:
+            seeded = True
             if not pv.or_history.ids:
                 try:
                     pv.or_history.touch(set((await pv.fetch_or_free(force=True)).keys()))

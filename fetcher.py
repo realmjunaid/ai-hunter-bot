@@ -59,9 +59,13 @@ def _parse(feed, handle: str) -> list:
     return out
 
 
+RSS_UA = {"User-Agent": "AiHunter/1.0 (Discord Bot; RSS monitor)"}
+
+
 async def _try_fetch(session, url: str, handle: str, timeout: int):
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+        async with session.get(url, headers=RSS_UA,
+                               timeout=aiohttp.ClientTimeout(total=timeout)) as r:
             if r.status != 200:
                 return None
             body = await r.read()
@@ -83,5 +87,6 @@ async def fetch_user_tweets(handle: str, session, base: str, fallbacks=None, tim
                 log.info("fetch %s ok via fallback %s", handle, b)
             return got
         log.warning("fetch %s failed via %s", handle, b)
-        await asyncio.sleep(2 ** i)
+        if i < len(bases) - 1:
+            await asyncio.sleep(2 ** i)
     return []

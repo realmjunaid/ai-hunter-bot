@@ -66,11 +66,49 @@ assert len(pages) == 10, len(pages)
 assert "260 more models not shown" in (pages[-1].description or ""), (pages[-1].description or "")[-160:]
 print("embed truncation notice: PASS")
 
-# 5. Dockerfile must ship every module (it omitted providers.py -> image crash).
-copy_lines = [ln.strip() for ln in (Path(B.BASE_DIR) / "Dockerfile").read_text(encoding="utf-8").splitlines()
-              if ln.strip().upper().startswith("COPY")]
-assert copy_lines, "no COPY lines in Dockerfile"
-assert any("*.py" in ln or "providers.py" in ln or ln.rstrip().endswith(".") for ln in copy_lines), copy_lines
-print("dockerfile copies providers: PASS")
+# 5. Docker support was intentionally removed: no Dockerfile/.dockerignore
+#    must remain in the repo.
+leftovers = [p.name for p in Path(B.BASE_DIR).iterdir()
+             if p.name == "Dockerfile" or p.name == ".dockerignore"
+             or p.name.startswith("docker-compose")]
+assert not leftovers, leftovers
+print("docker files removed: PASS")
+
+# 6. Empty free-model results must still count as a valid cache entry,
+#    otherwise every command refetches (cache stampede on zero-free days).
+import time as _time
+
+c = P.ProviderCache(free={}, fetched_at=_time.monotonic(), registry={})
+assert c.valid(), "fresh-but-empty cache must be valid"
+assert not P.ProviderCache().valid(), "never-fetched cache must be invalid"
+print("empty cache validity: PASS")
+
+# 7. The removed-model registry must be capped and must always keep live ids.
+big_free = {f"live{i:04d}": {"id": f"live{i:04d}", "name": f"Live {i}"} for i in range(100)}
+cache = P.ProviderCache()
+cache.registry = {f"old{i:05d}": {"id": f"old{i:05d}"} for i in range(5000)}
+P._remember(cache, big_free)
+assert len(cache.registry) <= P.REGISTRY_CAP, len(cache.registry)
+assert all(mid in cache.registry for mid in big_free), "live ids must survive eviction"
+print("registry cap: PASS")
+
+# 8. Escape-heavy tweet text must never push the embed past Discord's limit.
+from datetime import datetime, timezone
+
+from fetcher import Tweet
+
+nasty = "*hi* _yo_ `x` ~s~ |> " * 400
+tw = Tweet(handle="h", id="t1", text=nasty, url="https://x.com/h/status/t1",
+           created_utc=datetime.now(timezone.utc))
+em = B.build_embed(tw, ["free"])
+assert len(em.description or "") <= 4096, len(em.description or "")
+print("embed length bound: PASS")
+
+# 9. "RT@" without a space is still a retweet, not original content.
+import filter as F
+
+assert F.is_match("RT@someone great FREE model API", {"require_all": ["free"], "any_of": []})[0] is False
+assert F.is_match("New FREE model API launch", {"require_all": ["free"], "any_of": []}) == (True, ["free"])
+print("rt-variant filter: PASS")
 
 print("ALL REGRESSION TESTS PASS")

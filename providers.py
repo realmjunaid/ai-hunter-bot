@@ -44,6 +44,7 @@ C_INFO = 0x57F287
 CACHE_TTL = 90.0
 HISTORY_RETENTION_DAYS = 30
 MAX_ALERT_MODELS = 12
+MAX_INFRON_PAGES = 20
 
 log = logging.getLogger("aihunter.providers")
 
@@ -232,7 +233,24 @@ class ProviderCache:
     registry: Dict[str, dict] = field(default_factory=dict)
 
     def valid(self) -> bool:
-        return bool(self.free) and (time.monotonic() - self.fetched_at) < CACHE_TTL
+        # Time-based only: requiring a non-empty `free` would refetch on
+        # every call whenever zero free models exist (cache stampede).
+        return self.fetched_at != 0.0 and (time.monotonic() - self.fetched_at) < CACHE_TTL
+
+
+REGISTRY_CAP = 2000
+
+
+def _remember(cache: ProviderCache, free: Dict[str, dict]) -> None:
+    """Merge fresh models into the registry, evicting oldest beyond cap.
+
+    The registry backs removed-model alerts, so entries must outlive the
+    fetch that dropped them — but it must not grow without bound.
+    Live ids go last so eviction drops the stalest removed entries first.
+    """
+    merged = {k: v for k, v in cache.registry.items() if k not in free}
+    merged.update(free)
+    cache.registry = dict(list(merged.items())[-REGISTRY_CAP:])
 
 
 or_cache = ProviderCache()
@@ -250,7 +268,7 @@ async def fetch_or_free(force: bool = False) -> Dict[str, dict]:
     free = {m["id"]: m for m in models if isinstance(m, dict) and m.get("id") and is_free_model(m)}
     or_cache.free = free
     or_cache.fetched_at = time.monotonic()
-    or_cache.registry.update(free)
+    _remember(or_cache, free)
     return free
 
 
@@ -261,7 +279,7 @@ async def fetch_oc_free(force: bool = False) -> Dict[str, dict]:
     free = {m["id"]: m for m in models if isinstance(m, dict) and m.get("id") and is_opencode_free_model(m)}
     oc_cache.free = free
     oc_cache.fetched_at = time.monotonic()
-    oc_cache.registry.update(free)
+    _remember(oc_cache, free)
     return free
 
 
@@ -278,7 +296,7 @@ async def fetch_if_free(force: bool = False) -> Dict[str, dict]:
         return if_cache.free
     all_models: List[dict] = []
     page = 1
-    while True:
+    while page <= MAX_INFRON_PAGES:
         session = get_session()
         async with session.get(f"{INFRON_MODELS_URL}?page={page}&pageSize=100",
                                headers=infron_headers()) as resp:
@@ -292,13 +310,16 @@ async def fetch_if_free(force: bool = False) -> Dict[str, dict]:
         if len(all_models) >= total or not batch:
             break
         page += 1
+    if page > MAX_INFRON_PAGES:
+        log.warning("Infron pagination capped at %d pages (%d models so far)",
+                    MAX_INFRON_PAGES, len(all_models))
     free = {}
     for m in all_models:
         if isinstance(m, dict) and m.get("model_id") and is_infron_free_model(m):
             free[m["model_id"]] = {"id": m["model_id"], "name": m.get("display_name", m["model_id"])}
     if_cache.free = free
     if_cache.fetched_at = time.monotonic()
-    if_cache.registry.update(free)
+    _remember(if_cache, free)
     return free
 
 

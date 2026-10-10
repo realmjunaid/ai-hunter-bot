@@ -40,7 +40,9 @@ try:
 finally:
     F._try_fetch, F.asyncio.sleep = orig_try, orig_sleep
 assert got == [], got
-assert len(sleeps) == 3 and sleeps[0] < sleeps[1] < sleeps[2], sleeps
+# No sleep after the final base fails: there is nothing left to retry,
+# so 3 bases produce exactly the 2 inter-attempt delays [1, 2].
+assert sleeps == [1, 2], sleeps
 print("backoff delays:", sleeps)
 
 # 3. empty feed must log something (caplog-style via handler)

@@ -1,33 +1,121 @@
-# Ai Hunter
+# 🏹 Ai Hunter
 
-Discord bot with two watches:
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
+[![discord.py](https://img.shields.io/badge/discord.py-2.4%2B-blurple.svg)](https://discordpy.readthedocs.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Free & Open Source](https://img.shields.io/badge/free-open%20source-brightgreen.svg)](LICENSE)
 
-1. **X watch** (hourly): 37 X accounts → new **free AI model** posts
-   forwarded to `CHANNEL_ID` as rich embeds.
-2. **Provider watch** (every `POLL_INTERVAL_SECONDS`): OpenRouter +
-   OpenCode Zen + Infron free-model add/remove alerts → `ALERT_CHANNEL_ID`.
-   Slash commands: `/orfm` `/ocfm` `/infm` `/ping`.
+**Ai Hunter is a free, open-source Discord bot that watches the AI world for you.**
 
-## Setup (any host)
+It tracks **38 X (Twitter) accounts** for free-AI-model announcements every hour, and polls **OpenRouter, OpenCode Zen, and Infron** every few minutes for free-model additions and removals — posting rich Discord embeds the moment something changes. It also answers slash commands so anyone on your server can list current free models on demand.
 
-1. `pip install -r requirements.txt`
-2. `cp .env.example .env` → fill `DISCORD_TOKEN`, `CHANNEL_ID`
-   (Discord Developer Portal → Bot → token; enable Message Content intent
-   not needed — only send permission in the channel)
-3. Test without posting: `DRY_RUN=1 CHANNEL_ID=123 python bot.py`
-4. Run: `python bot.py` (checks every hour)
+Free for everyone — use it, fork it, self-host it. 💚
 
-## Docker
+---
+
+## ✨ Features
+
+| Watch | What it does | Cadence |
+|---|---|---|
+| 🐦 **X watch** | Forwards new free-AI-model posts from 38 curated accounts to `CHANNEL_ID` | Hourly |
+| 🔌 **OpenRouter** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every `POLL_INTERVAL_SECONDS` |
+| ⚡ **OpenCode Zen** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every `POLL_INTERVAL_SECONDS` |
+| 🛰️ **Infron** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every `POLL_INTERVAL_SECONDS` |
+
+**Slash commands** (available to everyone on the server):
+
+- `/orfm` — list all current OpenRouter free models
+- `/ocfm` — list all current OpenCode Zen free models
+- `/infm` — list all current Infron free models
+- `/ping` — check the bot is alive
+
+**Reliability built in:** concurrent fetching, response caching, retry with backoff, duplicate suppression (`seen.db`, auto-pruned after 30 days), graceful degradation when a feed or API is down, and a `DRY_RUN` mode for safe testing.
+
+---
+
+## 🚀 Quickstart
+
+**Requirements:** Python 3.12+, a Discord bot token ([create one here](https://discord.com/developers/applications) — only the **Send Messages** permission is needed; no privileged intents).
 
 ```bash
-docker build -t ai-hunter .
-docker run -d --restart unless-stopped --env-file .env ai-hunter
+git clone https://github.com/realmjunaid/ai-hunter-bot.git
+cd ai-hunter-bot
+pip install -r requirements.txt
+cp .env.example .env   # then fill in your values (see below)
+python bot.py
 ```
 
-## Config
+**Test without posting anything:**
 
-- `accounts.json` — watched X handles
-- `keywords.json` — `require_all` + `any_of` match lists
-- `RSSHUB_BASE` — feed backend (default public instance; point to your own
-  RSSHub if public ones rate-limit you). `RSSHUB_FALLBACKS` = comma list.
-- State: `seen.db` (auto-pruned after 30 days)
+```bash
+DRY_RUN=1 CHANNEL_ID=123 python bot.py
+```
+
+---
+
+## ⚙️ Configuration
+
+Copy `.env.example` to `.env` and set:
+
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | ✅ | Bot token from the Discord Developer Portal |
+| `CHANNEL_ID` | ✅ | Channel for X-watch post embeds |
+| `ALERT_CHANNEL_ID` | ➖ | Channel for provider add/remove alerts (same as above or different; `0` = provider watch off) |
+| `POLL_INTERVAL_SECONDS` | ➖ | Provider poll interval, minimum 60 (default `300`) |
+| `RSSHUB_BASE` | ➖ | RSS feed backend (default public instance; point to your own RSSHub if rate-limited) |
+| `RSSHUB_FALLBACKS` | ➖ | Comma-separated fallback feed backends |
+| `OPENROUTER_API_KEY` | ➖ | Optional — raises OpenRouter rate limits |
+| `DRY_RUN` | ➖ | `1` = fetch and print only, never post or log in |
+
+**Watch lists** (edit the JSON, restart the bot):
+
+- `accounts.json` — X handles to watch
+- `keywords.json` — `require_all` (every word must match) + `any_of` (at least one must match)
+
+**Local state** (auto-created, never commit): `seen.db` (posted tweets), `*_history.json` / `*_known.json` (provider model ids).
+
+---
+
+## 🧪 Tests
+
+```bash
+python test_filter.py       # keyword filter + seen-store
+python test_providers.py    # provider detection + embeds
+python test_botfix.py       # backoff, empty-feed, dry-run safety
+python test_regressions.py  # tweet ids, paths, config errors, perf guards
+```
+
+All four suites must print `... PASS` with exit code `0`.
+
+---
+
+## 🗂️ Project structure
+
+```
+bot.py              # Discord wiring: loops, slash commands, entrypoint
+providers.py        # OpenRouter / OpenCode Zen / Infron fetch, diff, alerts
+fetcher.py          # X post fetching via RSS (no login, no paid API)
+filter.py           # keyword matching (require_all + any_of)
+store.py            # seen-tweet SQLite store (WAL, auto-pruned)
+config.py           # env/.env loading with friendly ConfigError messages
+accounts.json       # watched X handles
+keywords.json       # match lists
+requirements.txt    # discord.py, aiohttp, python-dotenv, feedparser
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Fork the repo, create a branch, make sure all four test suites pass, and open a pull request. Bug reports and feature ideas via [GitHub Issues](https://github.com/realmjunaid/ai-hunter-bot/issues).
+
+---
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE). Free for personal and commercial use.
+
+## ⚠️ Disclaimer
+
+X-post monitoring depends on third-party RSS backends (RSSHub-compatible). If a public instance rate-limits you, self-host RSSHub and set `RSSHUB_BASE`. This project is not affiliated with Discord, X, OpenRouter, OpenCode, or Infron.

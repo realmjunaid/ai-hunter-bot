@@ -3,7 +3,7 @@
 
 def is_match(text: str, keywords: dict) -> tuple:
     low = text.lower().strip()
-    if low.startswith("rt @") or low.startswith("rt:") or low.startswith("@"):
+    if low.startswith("rt @") or low.startswith("rt@") or low.startswith("rt:") or low.startswith("@"):
         return False, []
     hits = [w for w in keywords.get("require_all", []) if w.lower() in low]
     if len(hits) < len(keywords.get("require_all", [])):
