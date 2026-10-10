@@ -7,7 +7,7 @@
 
 **Ai Hunter is a free, open-source Discord bot that watches the AI world for you.**
 
-It tracks **38 X (Twitter) accounts** for free-AI-model announcements every hour, and polls **OpenRouter, OpenCode Zen, and Infron** every few minutes for free-model additions and removals — posting rich Discord embeds the moment something changes. It also answers slash commands so anyone on your server can list current free models on demand.
+It tracks **38 X (Twitter) accounts** for free-AI-model announcements every hour, and polls **OpenRouter, OpenCode Zen, Infron, and TokenHarbor** every few minutes for free-model additions and removals — posting rich Discord embeds the moment something changes. It also answers slash commands so anyone on your server can list current free models on demand.
 
 Free for everyone — use it, fork it, self-host it. 💚
 
@@ -21,12 +21,14 @@ Free for everyone — use it, fork it, self-host it. 💚
 | 🔌 **OpenRouter** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
 | ⚡ **OpenCode Zen** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
 | 🛰️ **Infron** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
+| 🏝️ **TokenHarbor** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
 
 **Slash commands** (available to everyone on the server):
 
 - `/orfm` — list all current OpenRouter free models
 - `/ocfm` — list all current OpenCode Zen free models
 - `/infm` — list all current Infron free models
+- `/thfm` — list all current TokenHarbor free models
 - `/xpost` — check X accounts for the last 24h right now (on-demand)
 - `/ping` — check the bot is alive
 

@@ -150,6 +150,7 @@ def main():
     or_lock = asyncio.Lock()
     oc_lock = asyncio.Lock()
     if_lock = asyncio.Lock()
+    th_lock = asyncio.Lock()
     x_lock = asyncio.Lock()
     synced = False
     seeded = False
@@ -174,6 +175,11 @@ def main():
     async def poll_if():
         await pv.poll_provider(bot, cfg.alert_channel_id, "Infron",
                                pv.fetch_if_free, pv.if_history, pv.if_cache, if_lock)
+
+    @tasks.loop(seconds=cfg.poll_interval)
+    async def poll_th():
+        await pv.poll_provider(bot, cfg.alert_channel_id, "TokenHarbor",
+                               pv.fetch_th_free, pv.th_history, pv.th_cache, th_lock)
 
     @bot.event
     async def on_ready():
@@ -211,7 +217,13 @@ def main():
                     pv.if_history.save()
                 except Exception as e:
                     log.warning("initial Infron fetch failed: %s", e)
-        for loop in (hourly, poll_or, poll_oc, poll_if):
+            if not pv.th_history.ids:
+                try:
+                    pv.th_history.touch(set((await pv.fetch_th_free(force=True)).keys()))
+                    pv.th_history.save()
+                except Exception as e:
+                    log.warning("initial TokenHarbor fetch failed: %s", e)
+        for loop in (hourly, poll_or, poll_oc, poll_if, poll_th):
             if not loop.is_running():
                 loop.start()
 

@@ -9,6 +9,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime as dt, timezone
@@ -29,11 +30,15 @@ except ZoneInfoNotFoundError:
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 OPENCODE_MODELS_URL = "https://opencode.ai/zen/v1/models"
 INFRON_MODELS_URL = "https://infron.ai/api/models"
+# No public JSON API: the server-rendered catalog page embeds every row
+# (surface id, label, isFree, prices) as JSON, so parse the HTML directly.
+TOKENHARBOR_MODELS_URL = "https://tokenharbor.ai/models?category=free"
 
 PROVIDER_LINKS = {
     "OpenRouter": "https://openrouter.ai/models?variant=free",
     "OpenCode Zen": "https://opencode.ai/docs/zen/#models",
     "Infron": "https://infron.ai/models?free=true",
+    "TokenHarbor": "https://tokenharbor.ai/models?category=free",
 }
 
 C_OREO = 0x57F287
@@ -226,6 +231,24 @@ def is_infron_free_model(m: dict) -> bool:
     return False
 
 
+def is_tokenharbor_free_model(m: dict) -> bool:
+    """TokenHarbor free detection on normalized rows (see parse_tokenharbor_rows).
+
+    Normalized rows carry the page's own isFree flag plus zero-price info,
+    so trust the flag first, then fall back to id/price heuristics.
+    """
+    mid = str(m.get("id", "")).strip().lower()
+    if m.get("isFree") is True:
+        return True
+    if mid.endswith(":free") or mid.endswith("-free") or "/free" in mid:
+        return True
+    prompt = _to_float_or_none(m.get("priceIn"))
+    completion = _to_float_or_none(m.get("priceOut"))
+    if prompt == 0.0 and completion == 0.0 and (prompt is not None or completion is not None):
+        return True
+    return False
+
+
 @dataclass
 class ProviderCache:
     free: Dict[str, dict] = field(default_factory=dict)
@@ -256,9 +279,11 @@ def _remember(cache: ProviderCache, free: Dict[str, dict]) -> None:
 or_cache = ProviderCache()
 oc_cache = ProviderCache()
 if_cache = ProviderCache()
+th_cache = ProviderCache()
 or_history = HistoryStore(BASE_DIR / "model_history.json", BASE_DIR / "known_models.json")
 oc_history = HistoryStore(BASE_DIR / "opencode_history.json", BASE_DIR / "opencode_known.json")
 if_history = HistoryStore(BASE_DIR / "infron_history.json", BASE_DIR / "infron_known.json")
+th_history = HistoryStore(BASE_DIR / "tokenharbor_history.json", BASE_DIR / "tokenharbor_known.json")
 
 
 async def fetch_or_free(force: bool = False) -> Dict[str, dict]:
@@ -288,6 +313,61 @@ def infron_headers() -> Dict[str, str]:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AiHunter/1.0",
         "Accept": "application/json",
     }
+
+
+def tokenharbor_headers() -> Dict[str, str]:
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AiHunter/1.0",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+
+
+# One catalog row in the page payload: {"surface":"id:free","label":"Name",
+# ..., "priceIn":0,"priceOut":0,"isFree":true, ...}. Quotes arrive
+# backslash-escaped, rows never nest braces (only string arrays inside).
+TH_ROW_RE = re.compile(r"\{[^{}]*\\\"surface\\\":\\\"[^\\\"]+\\\"[^{}]*\}")
+
+
+def parse_tokenharbor_rows(html: str) -> List[dict]:
+    """Extract normalized model dicts from the catalog page HTML."""
+    rows = []
+    for match in TH_ROW_RE.finditer(html):
+        try:
+            row = json.loads(match.group(0).replace('\\"', '"'))
+        except Exception:
+            continue
+        surface = str(row.get("surface", "")).strip()
+        if not surface:
+            continue
+        label = str(row.get("label", "") or surface).strip()
+        limited = bool(row.get("limited")) or bool(row.get("freeUntil"))
+        rows.append({
+            "id": surface,
+            "name": f"{label} (limited)" if limited else label,
+            "isFree": row.get("isFree"),
+            "priceIn": row.get("priceIn"),
+            "priceOut": row.get("priceOut"),
+        })
+    return rows
+
+
+async def fetch_th_free(force: bool = False) -> Dict[str, dict]:
+    if not force and th_cache.valid():
+        return th_cache.free
+    session = get_session()
+    async with session.get(TOKENHARBOR_MODELS_URL, headers=tokenharbor_headers()) as resp:
+        if resp.status != 200:
+            body = (await resp.text())[:300]
+            raise RuntimeError(f"API {resp.status}: {body}")
+        html = await resp.text()
+    free = {}
+    for m in parse_tokenharbor_rows(html):
+        if m.get("id") and is_tokenharbor_free_model(m):
+            free[m["id"]] = {"id": m["id"], "name": m.get("name", m["id"])}
+    th_cache.free = free
+    th_cache.fetched_at = time.monotonic()
+    _remember(th_cache, free)
+    return free
 
 
 async def fetch_if_free(force: bool = False) -> Dict[str, dict]:
@@ -374,6 +454,8 @@ def make_list_embeds(free: Dict[str, dict], provider_title: str) -> List[discord
         provider = "OpenRouter"
     elif "Infron" in provider_title:
         provider = "Infron"
+    elif "TokenHarbor" in provider_title:
+        provider = "TokenHarbor"
     else:
         provider = "OpenCode Zen"
     url = PROVIDER_LINKS.get(provider)
@@ -490,6 +572,18 @@ def register_commands(tree) -> None:
             await interaction.followup.send(embed=e, ephemeral=True)
             return
         await interaction.followup.send(embeds=make_list_embeds(free, "Infron Free Models"))
+
+    @tree.command(name="thfm", description="Show all current TokenHarbor free models")
+    async def thfm(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True)
+        try:
+            free = await fetch_th_free()
+        except Exception as err:
+            e = base_embed("Fetch Failed", C_DANGER)
+            e.description = f"Could not fetch [TokenHarbor]({PROVIDER_LINKS['TokenHarbor']}) models:\n```{err}```"
+            await interaction.followup.send(embed=e, ephemeral=True)
+            return
+        await interaction.followup.send(embeds=make_list_embeds(free, "TokenHarbor Free Models"))
 
     @tree.command(name="ping", description="Check bot latency")
     async def ping(interaction: discord.Interaction) -> None:

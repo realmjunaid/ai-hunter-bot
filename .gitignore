@@ -7,6 +7,8 @@ opencode_history.json
 opencode_known.json
 infron_history.json
 infron_known.json
+tokenharbor_history.json
+tokenharbor_known.json
 __pycache__/
 *.pyc
 .ledger.md

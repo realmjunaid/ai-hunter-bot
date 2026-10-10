@@ -47,6 +47,27 @@ assert P.is_infron_free_model({"model_id": "motif/motif-3", "display_name": "Mot
 assert not P.is_infron_free_model({"model_id": "qwen/qwen3.8-max", "display_name": "Qwen Max"})
 print("ALL PROVIDER TESTS PASS")
 
+# ---------- 2b. TokenHarbor detection + page-row parsing ----------
+assert P.is_tokenharbor_free_model({"id": "deepseek-v4.1-flash:free", "isFree": True})
+assert P.is_tokenharbor_free_model({"id": "mimo-v2.6-flash:free", "isFree": False})
+assert P.is_tokenharbor_free_model({"id": "x/y", "isFree": None, "priceIn": 0, "priceOut": 0})
+assert not P.is_tokenharbor_free_model({"id": "gpt-5", "isFree": False, "priceIn": 1, "priceOut": 2})
+_TH_SAMPLE = ('<script>self.__next_f.push([1,"[{\\"surface\\":\\"deepseek-v4.1-flash:free\\",'
+              '\\"label\\":\\"DeepSeek V4.1 Flash\\",\\"priceIn\\":0,\\"priceOut\\":0,'
+              '\\"isFree\\":true,\\"limited\\":false,\\"freeUntil\\":null},'
+              '{\\"surface\\":\\"claude-haiku-5.5:free\\",\\"label\\":\\"Claude Haiku 5.5\\",'
+              '\\"priceIn\\":0,\\"priceOut\\":0,\\"isFree\\":true,\\"limited\\":true,'
+              '\\"freeUntil\\":\\"2026-10-15T13:00:00+00:00\\"},'
+              '{\\"surface\\":\\"gpt-5\\",\\"label\\":\\"GPT-5\\",\\"priceIn\\":1.25,'
+              '\\"priceOut\\":10,\\"isFree\\":false,\\"limited\\":false,\\"freeUntil\\":null}]"])</script>')
+_th_rows = P.parse_tokenharbor_rows(_TH_SAMPLE)
+assert [r["id"] for r in _th_rows] == ["deepseek-v4.1-flash:free", "claude-haiku-5.5:free", "gpt-5"], _th_rows
+assert _th_rows[1]["name"] == "Claude Haiku 5.5 (limited)", _th_rows[1]
+assert [r["id"] for r in _th_rows if P.is_tokenharbor_free_model(r)] == [
+    "deepseek-v4.1-flash:free", "claude-haiku-5.5:free"]
+assert P.parse_tokenharbor_rows("<html>no rows here</html>") == []
+print("tokenharbor parse: PASS")
+
 # ---------- 3. fix-pass: RT variants, backoff, empty-feed, dry-run ----------
 ok, _ = is_match("  RT @x free model api", KW)
 assert not ok, "indented RT must be skipped"
