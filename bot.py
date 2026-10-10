@@ -108,15 +108,31 @@ def main():
     bot = discord.Client(intents=intents)
     tree = discord.app_commands.CommandTree(bot)
     pv.register_commands(tree)
+
+    @tree.command(name="xpost", description="Check X accounts for new free-model posts right now")
+    async def xpost(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(thinking=True)
+        if x_lock.locked():
+            e = pv.base_embed("Already Checking", pv.C_INFO)
+            e.description = "An X check is already running — please wait a minute."
+            await interaction.followup.send(embed=e, ephemeral=True)
+            return
+        async with x_lock:
+            n = await check_once(bot, cfg, keywords, db, accounts)
+        e = pv.base_embed("X Check Done", pv.C_SUCCESS)
+        e.description = f"Checked {len(accounts)} accounts, posted {n} new."
+        await interaction.followup.send(embed=e, ephemeral=True)
     or_lock = asyncio.Lock()
     oc_lock = asyncio.Lock()
     if_lock = asyncio.Lock()
+    x_lock = asyncio.Lock()
     synced = False
     seeded = False
 
     @tasks.loop(hours=1)
     async def hourly():
-        n = await check_once(bot, cfg, keywords, db, accounts)
+        async with x_lock:
+            n = await check_once(bot, cfg, keywords, db, accounts)
         log.info("x round done, posted %d", n)
 
     @tasks.loop(seconds=cfg.poll_interval)

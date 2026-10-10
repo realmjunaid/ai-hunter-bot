@@ -18,15 +18,16 @@ Free for everyone — use it, fork it, self-host it. 💚
 | Watch | What it does | Cadence |
 |---|---|---|
 | 🐦 **X watch** | Forwards new free-AI-model posts from 38 curated accounts to `CHANNEL_ID` | Hourly |
-| 🔌 **OpenRouter** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every `POLL_INTERVAL_SECONDS` |
-| ⚡ **OpenCode Zen** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every `POLL_INTERVAL_SECONDS` |
-| 🛰️ **Infron** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every `POLL_INTERVAL_SECONDS` |
+| 🔌 **OpenRouter** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
+| ⚡ **OpenCode Zen** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
+| 🛰️ **Infron** | Alerts on free-model **added / removed** → `ALERT_CHANNEL_ID` | Every 30 min |
 
 **Slash commands** (available to everyone on the server):
 
 - `/orfm` — list all current OpenRouter free models
 - `/ocfm` — list all current OpenCode Zen free models
 - `/infm` — list all current Infron free models
+- `/xpost` — check X accounts for new posts right now (on-demand)
 - `/ping` — check the bot is alive
 
 **Reliability built in:** concurrent fetching, response caching, retry with backoff, duplicate suppression (`seen.db`, auto-pruned after 30 days), graceful degradation when a feed or API is down, and a `DRY_RUN` mode for safe testing.
@@ -62,7 +63,7 @@ Copy `.env.example` to `.env` and set:
 | `DISCORD_TOKEN` | ✅ | Bot token from the Discord Developer Portal |
 | `CHANNEL_ID` | ✅ | Channel for X-watch post embeds |
 | `ALERT_CHANNEL_ID` | ➖ | Channel for provider add/remove alerts (same as above or different; `0` = provider watch off) |
-| `POLL_INTERVAL_SECONDS` | ➖ | Provider poll interval, minimum 60 (default `300`) |
+| `POLL_INTERVAL_SECONDS` | ➖ | Provider poll interval, minimum 60 (default `1800` = 30 min; X watch stays hourly) |
 | `RSSHUB_BASE` | ➖ | RSS feed backend (default public instance; point to your own RSSHub if rate-limited) |
 | `RSSHUB_FALLBACKS` | ➖ | Comma-separated fallback feed backends |
 | `OPENROUTER_API_KEY` | ➖ | Optional — raises OpenRouter rate limits |

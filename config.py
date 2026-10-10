@@ -55,5 +55,7 @@ def load() -> Config:
         fallbacks=fallbacks,
         dry_run=os.getenv("DRY_RUN", "0") == "1",
         alert_channel_id=_env_int("ALERT_CHANNEL_ID", 0),
-        poll_interval=max(60, _env_int("POLL_INTERVAL_SECONDS", 300)),
+        # Provider polls (OpenRouter / OpenCode Zen / Infron) run every
+        # 30 minutes by default; X watch stays on its own hourly loop.
+        poll_interval=max(60, _env_int("POLL_INTERVAL_SECONDS", 1800)),
     )

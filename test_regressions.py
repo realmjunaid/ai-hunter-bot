@@ -59,6 +59,20 @@ finally:
     os.environ.update(saved)
 print("config int errors: PASS")
 
+# 3b. Provider poll default must be 30 minutes (1800s), floor 60s.
+saved2 = dict(os.environ)
+try:
+    os.environ["DRY_RUN"] = "1"
+    os.environ["CHANNEL_ID"] = "123"
+    os.environ.pop("POLL_INTERVAL_SECONDS", None)
+    assert C.load().poll_interval == 1800, C.load().poll_interval
+    os.environ["POLL_INTERVAL_SECONDS"] = "10"
+    assert C.load().poll_interval == 60, C.load().poll_interval
+finally:
+    os.environ.clear()
+    os.environ.update(saved2)
+print("poll interval default/floor: PASS")
+
 # 4. More than 10 embed pages must not silently drop models.
 models = {f"m{i:03d}": {"id": f"m{i:03d}", "name": f"Model {i:03d}"} for i in range(460)}
 pages = P.make_list_embeds(models, "OpenRouter Free Models")
