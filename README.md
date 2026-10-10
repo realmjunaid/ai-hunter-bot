@@ -27,7 +27,7 @@ Free for everyone — use it, fork it, self-host it. 💚
 - `/orfm` — list all current OpenRouter free models
 - `/ocfm` — list all current OpenCode Zen free models
 - `/infm` — list all current Infron free models
-- `/xpost` — check X accounts for new posts right now (on-demand)
+- `/xpost` — check X accounts for the last 24h right now (on-demand)
 - `/ping` — check the bot is alive
 
 **Reliability built in:** concurrent fetching, response caching, retry with backoff, duplicate suppression (`seen.db`, auto-pruned after 30 days), graceful degradation when a feed or API is down, and a `DRY_RUN` mode for safe testing.

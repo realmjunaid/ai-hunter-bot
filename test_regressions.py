@@ -125,4 +125,35 @@ assert F.is_match("RT@someone great FREE model API", {"require_all": ["free"], "
 assert F.is_match("New FREE model API launch", {"require_all": ["free"], "any_of": []}) == (True, ["free"])
 print("rt-variant filter: PASS")
 
+# 10. /xpost 24h window: stale tweets skipped, fresh ones posted;
+#     the unfiltered (hourly) path still posts everything unseen.
+import asyncio as _asyncio
+import store as _store
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+from fetcher import Tweet as _Tweet
+
+_now = _dt.now(_tz.utc)
+_old = _Tweet(handle="h", id="old1", text="FREE model API launch",
+              url="https://x.com/h/status/old1", created_utc=_now - _td(hours=25))
+_fresh = _Tweet(handle="h", id="new1", text="FREE model API launch",
+                url="https://x.com/h/status/new1", created_utc=_now)
+_KW2 = {"require_all": ["free"], "any_of": []}
+
+
+async def _two_fetch(handle, session, base, fallbacks=None, timeout=20):
+    return [_old, _fresh]
+
+
+B.fetch_user_tweets, _orig_fetch = _two_fetch, B.fetch_user_tweets
+try:
+    _dbw = _store.connect(":memory:")
+    _Cfg = type("C", (), {"dry_run": True, "rsshub_base": "x", "fallbacks": []})
+    _n_win = _asyncio.run(B.check_once(None, _Cfg(), _KW2, _dbw, ["h"], max_age_hours=24))
+    assert _n_win == 1, _n_win
+    _n_all = _asyncio.run(B.check_once(None, _Cfg(), _KW2, _dbw, ["h"]))
+    assert _n_all == 2, _n_all
+finally:
+    B.fetch_user_tweets = _orig_fetch
+print("xpost 24h window: PASS")
+
 print("ALL REGRESSION TESTS PASS")

@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiohttp
@@ -53,8 +54,12 @@ async def _fetch_handle(session, cfg, handle):
         return handle, []
 
 
-async def check_once(bot, cfg, keywords, db, accounts) -> int:
+async def check_once(bot, cfg, keywords, db, accounts, max_age_hours=None) -> int:
+    """Fetch every handle, post new matches. With max_age_hours set,
+    tweets older than the window are skipped (for on-demand catch-ups)."""
     sent = 0
+    skipped_old = 0
+    now = datetime.now(timezone.utc)
     async with aiohttp.ClientSession() as session:
         sem = asyncio.Semaphore(5)
 
@@ -69,6 +74,25 @@ async def check_once(bot, cfg, keywords, db, accounts) -> int:
             if not tweets:
                 log.info("no items for %s this round", handle)
                 continue
+            if max_age_hours is not None:
+                fresh = []
+                for tw in tweets:
+                    created = tw.created_utc
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    age_h = (now - created).total_seconds() / 3600
+                    if age_h <= max_age_hours:
+                        fresh.append(tw)
+                    else:
+                        skipped_old += 1
+                tweets = fresh
+                if not tweets:
+                    log.info("no fresh items for %s this round (window %dh)", handle, max_age_hours)
+                    continue
+            # Oldest first so a catch-up round reads chronologically.
+            tweets = sorted(tweets, key=lambda tw: (
+                tw.created_utc.replace(tzinfo=timezone.utc)
+                if tw.created_utc.tzinfo is None else tw.created_utc))
             for tw in tweets:
                 ok, hits = is_match(tw.text, keywords)
                 if not ok or is_seen(db, tw.id):
@@ -92,6 +116,8 @@ async def check_once(bot, cfg, keywords, db, accounts) -> int:
                         await asyncio.sleep(5)
                 await asyncio.sleep(1)
     prune(db)
+    if skipped_old:
+        log.info("skipped %d tweets older than window", skipped_old)
     return sent
 
 
@@ -118,9 +144,10 @@ def main():
             await interaction.followup.send(embed=e, ephemeral=True)
             return
         async with x_lock:
-            n = await check_once(bot, cfg, keywords, db, accounts)
+            n = await check_once(bot, cfg, keywords, db, accounts, max_age_hours=24)
         e = pv.base_embed("X Check Done", pv.C_SUCCESS)
-        e.description = f"Checked {len(accounts)} accounts, posted {n} new."
+        e.description = (f"Checked {len(accounts)} accounts for the last 24 hours, "
+                         f"posted {n} new.")
         await interaction.followup.send(embed=e, ephemeral=True)
     or_lock = asyncio.Lock()
     oc_lock = asyncio.Lock()
